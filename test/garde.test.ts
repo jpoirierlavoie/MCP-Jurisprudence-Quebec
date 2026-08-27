@@ -124,6 +124,66 @@ describe("§2 — les treize outils existent et se décrivent", () => {
   });
 });
 
+describe("§16.2 — l'étranglement est DIT, et jamais confondu avec un verdict", () => {
+  it("le dit quand il a eu lieu, SANS déloger la mise en garde de §2", async () => {
+    const client = fakeClient({ "caseBrowse/fr/csc-scc/2008scc9/": dunsmuir }, { throttled: 3 });
+    const t = texte(
+      await callTool(
+        "canlii_verify_citations",
+        { citations: [{ citation: "2008 CSC 9" }] },
+        toolCtx(client),
+      ),
+    );
+    expect(t).toContain("429");
+    expect(t).toContain("étranglé");
+    // Elle S'AJOUTE à la garde de §2, elle ne la remplace pas : l'une parle du
+    // rythme, l'autre de ce que le résultat établit.
+    expect(contient(t, GARDE_VERIFICATION)).toBe(true);
+    expect(t).toContain("CONFIRMÉE");
+  });
+
+  it("dit que le résultat n'en est PAS affaibli — sinon la note se lit comme une réserve", async () => {
+    const client = fakeClient({ "caseBrowse/fr/csc-scc/2008scc9/": dunsmuir }, { throttled: 1 });
+    const t = texte(
+      await callTool(
+        "canlii_verify_citations",
+        { citations: [{ citation: "2008 CSC 9" }] },
+        toolCtx(client),
+      ),
+    );
+    // Le mode de panne redouté : un modèle qui lit « étranglé » et en conclut que
+    // la vérification est douteuse, ou pire, que la décision est introuvable.
+    expect(t).toContain("ni tronqués ni affaiblis");
+  });
+
+  it("SE TAIT quand rien n'a été étranglé — une note constante cesse d'être lue", async () => {
+    const client = fakeClient({ "caseBrowse/fr/csc-scc/2008scc9/": dunsmuir });
+    const t = texte(
+      await callTool(
+        "canlii_verify_citations",
+        { citations: [{ citation: "2008 CSC 9" }] },
+        toolCtx(client),
+      ),
+    );
+    expect(t).not.toContain("429");
+    expect(t).not.toContain("étranglé");
+    expect(contient(t, GARDE_VERIFICATION)).toBe(true);
+  });
+
+  it("canlii_find_case le dit aussi : c'est l'outil qui appelle le plus", async () => {
+    const client = fakeClient({}, { throttled: 2 });
+    const t = texte(
+      await callTool(
+        "canlii_find_case",
+        { title: "Dunsmuir", database_id: "csc-scc" },
+        toolCtx(client),
+      ),
+    );
+    expect(t).toContain("429");
+    expect(contient(t, GARDE_RECHERCHE)).toBe(true);
+  });
+});
+
 describe("§2 conséquence n° 1 — la mise en garde est dans le CORPS de la réponse", () => {
   it("canlii_verify_citations la porte en pied, même sur un CONFIRMÉE", async () => {
     const client = fakeClient({ "caseBrowse/fr/csc-scc/2008scc9/": dunsmuir });

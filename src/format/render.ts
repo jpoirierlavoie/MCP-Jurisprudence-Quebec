@@ -47,6 +47,35 @@ export const GARDE_CITATEUR =
   "infirmé). Pour les dispositions québécoises, enchaîner avec le connecteur\n" +
   "« Législation du Québec » afin d'en lire le texte officiel.";
 
+/**
+ * Note d'ÉTRANGLEMENT — rendue seulement quand CanLII a effectivement refusé des
+ * appels pendant CETTE invocation.
+ *
+ * ⚠ CE N'EST PAS UNE MISE EN GARDE DE §2, et il ne faut pas la confondre avec une.
+ *   Les mises en garde bornent ce qu'un résultat ÉTABLIT ; celle-ci ne dit rien de la
+ *   vérité du résultat — les appels étranglés ont été rejoués, et un verdict rendu
+ *   reste un verdict rendu. Elle parle de RYTHME.
+ *
+ *   Elle existe quand même, et pour un motif de §2 : sans elle, un modèle qui voit un
+ *   appel lent, ou un résultat partiel, n'a aucun moyen de distinguer « CanLII m'a
+ *   demandé de ralentir » de « la collection ne contient rien ». La seconde lecture
+ *   est précisément l'erreur que ce connecteur existe pour empêcher. On nomme donc la
+ *   cause plutôt que de la laisser deviner.
+ *
+ *   Muette quand rien n'a été étranglé : une note affichée à chaque appel cesse
+ *   d'être lue, et celle-ci doit l'être le jour où elle paraît.
+ */
+export function noteEtranglement(etranglements: number): string {
+  if (etranglements <= 0) return "";
+  const pluriel = etranglements > 1 ? "appels" : "appel";
+  return [
+    `CanLII a étranglé ${nombreFr(etranglements)} ${pluriel} pendant cet appel (HTTP 429).`,
+    "Ils ont été rejoués et le rythme a été réduit d'office : les résultats ci-dessus",
+    "ne sont ni tronqués ni affaiblis par ce fait. Un lot plus petit, ou repris plus",
+    "tard, s'exécutera plus vite.",
+  ].join("\n");
+}
+
 /** Rappel du délai de diffusion, employé par `canlii_browse_cases` (§7.6). */
 export const GARDE_DIFFUSION =
   "La diffusion sur CanLII connaît un délai : prévoir un jeu de deux jours sur les\n" +

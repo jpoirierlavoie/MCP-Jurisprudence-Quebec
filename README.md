@@ -319,9 +319,15 @@ le quota.
   de sorte que l'activer exigerait deux gestes délibérés. Le cache continue de se remplir
   par l'usage (D6), ce qui est autre chose : la sédimentation des appels réellement faits,
   et non un aspirateur. Rouvrir la question supposerait de la poser d'abord à CanLII.
-- **§16.2 — quota et débit.** Non publiés. Les valeurs par défaut sont prudentes (250 ms
-  entre appels, 40 appels par invocation, aucune concurrence sortante) ; à ajuster après
-  réponse de CanLII.
+- **§16.2 — quota et débit.** Non publiés, et **mesurés faute d'être documentés** : à
+  250 ms entre appels, la production était étranglée sur 12 à 18 % des appels des
+  journées chargées (8 `429` pour 64 appels le 2026-08-24). Les valeurs par défaut sont
+  donc **600 ms** entre appels — et l'intervalle **double à chaque `429`**, plafonné à
+  4 s, pour le reste de l'invocation. 40 appels par invocation, aucune concurrence
+  sortante. Quand un étranglement a lieu, les outils le **disent** dans leur réponse,
+  en précisant que le résultat n'en est ni tronqué ni affaibli : sans cela, un « aucun
+  candidat » obtenu sous étranglement se lirait comme une inexistence. À réajuster si
+  CanLII finit par publier ses chiffres.
 
 ## Référence
 

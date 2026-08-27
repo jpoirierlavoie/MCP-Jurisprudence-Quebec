@@ -23,11 +23,16 @@ export interface FakeClient extends CanliiClient {
  */
 export function fakeClient(
   routes: Record<string, unknown>,
-  opts: { maxCalls?: number; erreur?: (chemin: string) => Error | null } = {},
+  opts: {
+    maxCalls?: number;
+    erreur?: (chemin: string) => Error | null;
+    /** Étranglements à simuler : le vrai client les compte, celui-ci les déclare. */
+    throttled?: number;
+  } = {},
 ): FakeClient {
   const maxCalls = opts.maxCalls ?? 40;
   const chemins: string[] = [];
-  const usage: CanliiUsage = { calls: 0, errors: 0, throttled: 0 };
+  const usage: CanliiUsage = { calls: 0, errors: 0, throttled: opts.throttled ?? 0 };
 
   return {
     chemins,

@@ -100,6 +100,86 @@ describe("§5.2 — étranglement, réessais, délais", () => {
     expect(c.usage().throttled).toBe(1);
   });
 
+  it("temporise PLUS LONGTEMPS sur 429 que sur 5xx, Retry-After absent", async () => {
+    // Un 5xx est un incident ; un 429 est une CONSIGNE. Employer la même base pour
+    // les deux revient à ignorer la consigne tout en croyant l'appliquer.
+    const c429 = client([
+      () => new Response("throttled", { status: 429 }),
+      () => json({ ok: true }),
+    ]);
+    await c429.c.get("caseBrowse/fr/");
+    const c503 = client([
+      () => new Response("boom", { status: 503 }),
+      () => json({ ok: true }),
+    ]);
+    await c503.c.get("caseBrowse/fr/");
+    expect(c429.dormis).toContain(2000);
+    expect(c503.dormis).toContain(500);
+    expect(Math.max(...c429.dormis)).toBeGreaterThan(Math.max(...c503.dormis));
+  });
+
+  it("RALENTIT D'OFFICE le reste de l'invocation après un 429", async () => {
+    // Le quota de CanLII n'est pas publié : le refus est la seule mesure qu'on ait.
+    // Un lot qui touche la limite doit cesser de la retoucher appel après appel.
+    const { c, dormis } = client(
+      [
+        () => new Response("throttled", { status: 429 }),
+        () => json({ ok: true }),
+        () => json({ ok: true }),
+      ],
+      { minIntervalMs: 600 },
+    );
+    await c.get("caseBrowse/fr/a");
+    const avant = dormis.length;
+    await c.get("caseBrowse/fr/b");
+    const attentes = dormis.slice(avant);
+    // 600 doublé une fois par l'unique 429 : l'appel suivant attend ~1200, pas ~600.
+    //
+    // ⚠ On compare par INTERVALLE, jamais par égalité. `#throttle` dort
+    //   `intervalle − temps déjà écoulé` : quelques millisecondes de vrai temps
+    //   passent entre la réponse et l'attente suivante, si bien qu'on observe 1198
+    //   plutôt que 1200. Une égalité stricte ici passe la plupart du temps et échoue
+    //   une fois sur trois — un test instable qu'on finirait par désarmer.
+    expect(attentes.some((ms) => ms > 1000 && ms <= 1200)).toBe(true);
+    expect(attentes.every((ms) => ms <= 1200)).toBe(true);
+    expect(c.usage().throttled).toBe(1);
+  });
+
+  it("l'adaptation est PLAFONNÉE et meurt avec l'invocation", async () => {
+    const rafale = Array.from({ length: 6 }, () =>
+      () => new Response("throttled", { status: 429 }),
+    );
+    const { c } = client([...rafale, () => json({ ok: true })], {
+      minIntervalMs: 600,
+      maxCalls: 40,
+    });
+    // Trois tentatives par appel : deux appels suffisent à empiler six 429.
+    await expect(c.get("caseBrowse/fr/a")).rejects.toThrow();
+    await expect(c.get("caseBrowse/fr/b")).rejects.toThrow();
+    expect(c.usage().throttled).toBe(6);
+
+    // Un client NEUF repart au rythme configuré : aucun état ne fuit entre
+    // invocations, et c'est délibéré (il n'y a pas d'objet durable ici).
+    const neuf = client([() => json({ ok: true }), () => json({ ok: true })], {
+      minIntervalMs: 600,
+    });
+    await neuf.c.get("caseBrowse/fr/a");
+    await neuf.c.get("caseBrowse/fr/b");
+    // Même prudence : ~600, et RIEN au-delà — l'intervalle n'a pas été hérité.
+    expect(neuf.dormis.some((ms) => ms > 400 && ms <= 600)).toBe(true);
+    expect(neuf.dormis.every((ms) => ms <= 600)).toBe(true);
+  });
+
+  it("Retry-After PRIME encore sur la base allongée du 429", async () => {
+    const { c, dormis } = client([
+      () => new Response("t", { status: 429, headers: { "Retry-After": "3" } }),
+      () => json({ ok: true }),
+    ]);
+    await c.get("caseBrowse/fr/");
+    expect(dormis).toContain(3000);
+    expect(dormis).not.toContain(2000);
+  });
+
   it("temporise en exponentielle quand Retry-After est absent", async () => {
     const { c, dormis } = client([
       () => new Response("boom", { status: 503 }),

@@ -30,6 +30,33 @@ const MAX_ATTEMPTS = 3;
 const BACKOFF_BASE_MS = 500;
 const JITTER_MS = 200;
 
+/**
+ * Temporisation propre au 429, distincte de celle des 5xx — et c'est le point.
+ *
+ * Un 5xx est un incident : réessayer vite est raisonnable. Un 429 est une CONSIGNE,
+ * et 500 ms n'est pas ralentir. Mesuré en production le 2026-08-24 : 8 étranglements
+ * pour 64 appels (12 %), et 7 pour 38 le 2026-08-20 — au rythme d'alors, un appel sur
+ * huit était refusé puis rejoué, ce qui consomme DEUX fois le quota pour un résultat.
+ * `Retry-After` prime toujours quand CanLII le fournit ; ceci n'est que le défaut.
+ */
+const THROTTLE_BACKOFF_MS = 2000;
+
+/**
+ * Plancher de rythme ADAPTATIF : après un 429, cette invocation ralentit d'elle-même.
+ *
+ * Le quota de CanLII n'est pas publié (§16.2), donc aucune constante ne peut être
+ * « la bonne ». Ce qui est observable, c'est le refus — alors on s'en sert : à chaque
+ * 429, l'intervalle de CETTE invocation double, jusqu'à ce plafond. Un petit lot qui
+ * ne touche jamais la limite reste rapide ; un gros lot qui la touche cesse de la
+ * retoucher au lieu de s'y cogner appel après appel.
+ *
+ * L'adaptation meurt avec l'invocation, délibérément : le client vit le temps d'un
+ * appel d'outil (voir l'en-tête), il n'y a pas d'état partagé entre invocations, et
+ * prétendre le contraire demanderait un objet durable dont la valeur ne le justifie
+ * pas.
+ */
+const MAX_INTERVAL_MS = 4000;
+
 export interface CanliiUsage {
   calls: number;
   errors: number;
@@ -68,7 +95,9 @@ function readInt(value: string | undefined, fallback: number): number {
 export function configFromEnv(env: Env): ClientConfig {
   return {
     apiKey: env.CANLII_API_KEY ?? "",
-    minIntervalMs: readInt(env.CANLII_MIN_INTERVAL_MS, 250),
+    // 600 ms (≈ 1,7 appel/s) et non plus 250 (4/s) : à 250, la production était
+    // étranglée sur 12 à 18 % des appels des journées chargées. Voir §16.2.
+    minIntervalMs: readInt(env.CANLII_MIN_INTERVAL_MS, 600),
     maxCalls: readInt(env.CANLII_MAX_CALLS_PER_INVOCATION, 40),
     timeoutMs: readInt(env.CANLII_TIMEOUT_MS, 15000),
   };
@@ -94,6 +123,8 @@ class Client implements CanliiClient {
   #errors = 0;
   #throttled = 0;
   #lastCallAt = 0;
+  /** Intervalle COURANT : part de la configuration, puis double à chaque 429. */
+  #intervalMs: number;
 
   readonly #cfg: ClientConfig;
   readonly #fetch: typeof fetch;
@@ -102,6 +133,7 @@ class Client implements CanliiClient {
 
   constructor(cfg: ClientConfig, seams: ClientSeams = {}) {
     this.#cfg = cfg;
+    this.#intervalMs = cfg.minIntervalMs;
     this.#fetch = seams.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.#sleep = seams.sleepImpl ?? defaultSleep;
     this.#jitter = seams.jitterImpl ?? (() => Math.random() * JITTER_MS);
@@ -205,14 +237,23 @@ class Client implements CanliiClient {
         continue;
       }
 
-      if (response.status === 429) this.#throttled++;
+      if (response.status === 429) {
+        this.#throttled++;
+        // Le refus est la seule mesure que l'on ait du quota : on l'écoute pour le
+        // RESTE de l'invocation, au lieu de rejouer le même rythme jusqu'au bout.
+        this.#intervalMs = Math.min(this.#intervalMs * 2, MAX_INTERVAL_MS);
+      }
 
       if (RETRIABLE.has(response.status)) {
         const body = await this.#safeText(response);
         lastError = new CanliiError(response.status, url, body);
         if (attempt === MAX_ATTEMPTS - 1) throw lastError;
         // `Retry-After` PRIME sur la temporisation exponentielle (§5.2).
-        await this.#backoff(attempt, parseRetryAfter(response.headers.get("Retry-After")));
+        await this.#backoff(
+          attempt,
+          parseRetryAfter(response.headers.get("Retry-After")),
+          response.status === 429,
+        );
         continue;
       }
 
@@ -241,15 +282,21 @@ class Client implements CanliiClient {
   async #throttle(): Promise<void> {
     if (this.#lastCallAt === 0) return;
     const waited = Date.now() - this.#lastCallAt;
-    if (waited < this.#cfg.minIntervalMs) {
-      await this.#sleep(this.#cfg.minIntervalMs - waited);
+    if (waited < this.#intervalMs) {
+      await this.#sleep(this.#intervalMs - waited);
     }
   }
 
-  /** Temporisation exponentielle 500 ms × 2ⁿ + gigue, sauf si `Retry-After` prime. */
-  async #backoff(attempt: number, retryAfterMs: number | null): Promise<void> {
-    const ms =
-      retryAfterMs !== null ? retryAfterMs : BACKOFF_BASE_MS * 2 ** attempt + this.#jitter();
+  /**
+   * Temporisation exponentielle + gigue, sauf si `Retry-After` prime.
+   *
+   * La BASE dépend de la cause : 2 s pour un 429 (une consigne de ralentir), 500 ms
+   * pour un 5xx (un incident passager). Employer la même pour les deux revient à
+   * ignorer la consigne tout en croyant l'appliquer.
+   */
+  async #backoff(attempt: number, retryAfterMs: number | null, etrangle = false): Promise<void> {
+    const base = etrangle ? THROTTLE_BACKOFF_MS : BACKOFF_BASE_MS;
+    const ms = retryAfterMs !== null ? retryAfterMs : base * 2 ** attempt + this.#jitter();
     await this.#sleep(ms);
   }
 

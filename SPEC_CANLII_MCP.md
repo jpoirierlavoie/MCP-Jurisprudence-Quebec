@@ -198,7 +198,7 @@ arrivés après la rédaction initiale : ils figurent ici, à leur place.*
   "triggers": { "crons": ["17 6 * * 1"] },   // hebdomadaire : rafraîchit le répertoire
   "vars": {
     "MCP_ENABLED": "true",
-    "CANLII_MIN_INTERVAL_MS": "250",
+    "CANLII_MIN_INTERVAL_MS": "600",
     "CANLII_MAX_CALLS_PER_INVOCATION": "40",
     "CANLII_TIMEOUT_MS": "15000",
     "PERSIST_SWEEPS": "true",
@@ -438,8 +438,10 @@ export interface CanliiClient {
 Le quota de CanLII n'est pas publié (§16.2). Le comportement par défaut est donc délibérément prudent :
 
 - **Séquentiel.** Aucune concurrence sortante. Un utilisateur unique n'a rien à y gagner et un pic peut coûter la clef.
-- **Intervalle minimal** de `CANLII_MIN_INTERVAL_MS` (250 ms) entre deux appels de la même invocation.
-- **Réessais** sur `429`, `500`, `502`, `503`, `504` : trois tentatives, temporisation exponentielle `500 ms × 2ⁿ` plus gigue de 0–200 ms ; si un en-tête `Retry-After` est présent, il **prime**. Incrémenter `api_usage.throttled` à chaque `429`.
+- **Intervalle minimal** de `CANLII_MIN_INTERVAL_MS` (**600 ms**, ≈ 1,7 appel/s) entre deux appels de la même invocation. *Relevé de 250 ms le 2026-08-27 : à 4 appels/s, la production était étranglée sur 12 à 18 % des appels des journées chargées (§16.2).*
+- **Intervalle ADAPTATIF.** À chaque `429`, l'intervalle de l'invocation en cours **double**, plafonné à 4 s. Le quota n'étant pas publié, le refus est la seule mesure dont on dispose : un petit lot qui ne touche jamais la limite reste rapide, un gros lot qui la touche cesse de s'y cogner. L'adaptation **meurt avec l'invocation** — le client ne vit que le temps d'un appel d'outil, et un état partagé entre invocations exigerait un objet durable que la valeur ne justifie pas.
+- **Réessais** sur `429`, `500`, `502`, `503`, `504` : trois tentatives, temporisation exponentielle plus gigue de 0–200 ms ; si un en-tête `Retry-After` est présent, il **prime**. La BASE dépend de la cause — **2 s pour un `429`**, 500 ms pour un `5xx` : un `5xx` est un incident, un `429` est une consigne, et 500 ms n'est pas ralentir. Incrémenter `api_usage.throttled` à chaque `429`.
+- **L'étranglement est DIT au modèle** quand il a eu lieu (§16.2) : `canlii_verify_citations` et `canlii_find_case` ajoutent une note nommant les `429` subis, en précisant que les résultats n'en sont **ni tronqués ni affaiblis**. Ce n'est PAS une mise en garde de §2 — elle ne borne pas ce que le résultat établit, elle explique un rythme — mais elle sert le même contrat : sans elle, un « aucun candidat » obtenu sous étranglement se lit comme une inexistence. Muette quand rien n'a été étranglé.
 - **Pas de réessai** sur `400`, `401`, `403`, `404`.
 - **Délai** : `AbortSignal.timeout(CANLII_TIMEOUT_MS)`.
 - **Plafond dur** : au-delà de `CANLII_MAX_CALLS_PER_INVOCATION`, lever `CanliiBudgetError` ; le gestionnaire d'outil renvoie alors les résultats **partiels** obtenus, assortis d'une mention explicite (« budget d'appels épuisé — résultat partiel »), plutôt qu'une erreur sèche.
@@ -898,7 +900,17 @@ Dépôt GitHub distinct, calqué sur les protections d'Athéna : **actions épin
 réponse, parce qu'une question effacée se repose.*
 
 1. ~~**Conditions d'utilisation et copie locale.**~~ **TRANCHÉE le 2026-07-23 : pas de moissonnage de masse.** La sédimentation par l'usage (D6) reste ; le §11 reste **inerte**, et ce n'est plus une question ouverte mais une décision du praticien — ne pas basculer le drapeau, même « pour essayer ». Deux verrous : `BACKFILL_ENABLED="false"` et aucun cron quotidien déclaré.
-2. **Quota et débit — TOUJOURS OUVERTE, et désormais MESURÉE.** Rien n'est publié, mais la télémétrie de §10 montre des `429` **récurrents** : 8 le 2026-08-24 pour 64 appels, 7 le 2026-08-20 pour 38 appels. `CANLII_MIN_INTERVAL_MS = 250` est donc trop ambitieux pour ce que l'API tolère réellement. Deux gestes, dans cet ordre : demander les chiffres à CanLII, et **relever l'intervalle** en attendant la réponse. Un `429` n'est pas une erreur d'exactitude — le client réessaie et §2 est préservé — mais c'est du quota et de la latence dépensés pour rien.
+2. **Quota et débit — la question reste ouverte, la CONDUITE est réglée (2026-08-27).** Rien n'est publié, et la télémétrie de §10 a montré des `429` **récurrents** : 8 le 2026-08-24 pour 64 appels, 7 le 2026-08-20 pour 38 appels — soit un appel sur huit refusé puis rejoué, donc deux fois le quota pour un seul résultat. Trois mesures en réponse, décrites en §5.2 : intervalle porté de 250 à **600 ms**, intervalle **adaptatif** qui double à chaque `429`, et temporisation propre au `429` (2 s au lieu de 500 ms).
+
+   **Ce qui reste ouvert, c'est le CHIFFRE, pas la conduite.** Aucune constante ne peut être « la bonne » tant que CanLII ne publie rien ; c'est précisément pourquoi le client s'appuie sur le seul fait observable — le refus — plutôt que sur une valeur devinée. À demander malgré tout : le débit toléré et le quota quotidien. Contrôle de l'effet, à refaire après quelques journées chargées :
+
+   ```sql
+   SELECT day, calls, errors, throttled,
+          ROUND(100.0 * throttled / NULLIF(calls,0), 1) AS pct
+   FROM api_usage ORDER BY day DESC LIMIT 30;
+   ```
+
+   Le repère : `pct` était de 12 à 18 % les journées chargées d'août 2026. S'il ne descend pas nettement, relever encore `CANLII_MIN_INTERVAL_MS` — et si le connecteur devient lent sans être étranglé, c'est le signe inverse et l'on peut redescendre. **Ne jamais lire un `429` comme une erreur d'exactitude** : le client réessaie, §2 est préservé, et l'étranglement est désormais DIT au modèle plutôt que laissé à deviner.
 3. **Forfait Cloudflare Workers.** Sans objet pour §11, qui ne sera pas activé. Reste pertinent pour le **balayage vif** : le forfait gratuit plafonne à 50 sous-requêtes externes et 10 ms de CPU par invocation, et `canlii_find_case` en consomme plusieurs. Aucun symptôme observé à ce jour.
 4. ~~**Modèle d'authentification.**~~ **RÉPONDUE : secret partagé (D7) maintenu.** Étendu le 2026-08-27 à un **second porteur** aux droits identiques, révocable seul (§9.1, §19). OAuth 2.1 (§9.4) reste conçu et non implémenté — la valeur protégée ne le justifie toujours pas.
 5. ~~**Bases à indexer** si §11 est activé.~~ **Sans objet** : voir 1.

@@ -24,6 +24,7 @@ import {
   EXPLICATIONS_INTROUVABLE,
   ficheDecision,
   GARDE_VERIFICATION,
+  noteEtranglement,
   numeroter,
 } from "../../format/render";
 import { type CaseRow, searchLocal } from "../../store/cases";
@@ -253,9 +254,15 @@ export async function verifyCitations(
 
   const entete = `Vérification de ${pluriel(demandes.length, "citation", "citations")} — collection CanLII.`;
   const corps = blocs.map((b, i) => numeroter(i + 1, b)).join("\n\n");
-  const pied = budgetEpuise
-    ? `Budget d'appels épuisé — résultat partiel.\n\n${GARDE_VERIFICATION}`
-    : GARDE_VERIFICATION;
+  // La note de rythme précède la mise en garde de §2 et ne s'y substitue jamais :
+  // l'une parle de ce que le résultat établit, l'autre du temps qu'il a pris.
+  const pied = [
+    budgetEpuise ? "Budget d'appels épuisé — résultat partiel." : "",
+    noteEtranglement(ctx.client.usage().throttled),
+    GARDE_VERIFICATION,
+  ]
+    .filter((p) => p.length > 0)
+    .join("\n\n");
 
   return ok([entete, corps, pied].join("\n\n"));
 }

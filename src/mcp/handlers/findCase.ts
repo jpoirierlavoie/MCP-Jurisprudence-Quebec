@@ -16,7 +16,13 @@ import type { CaseListResponse, Lang } from "../../canlii/types";
 import { compareTitles } from "../../citation/compare";
 import { persisterBalayages } from "../../config";
 import { pluriel, troncature } from "../../format/fr";
-import { document, GARDE_RECHERCHE, ligneCandidat, provenance } from "../../format/render";
+import {
+  document,
+  GARDE_RECHERCHE,
+  ligneCandidat,
+  noteEtranglement,
+  provenance,
+} from "../../format/render";
 import { type CaseRow, rowFromListItem, searchLocal, upsertCases } from "../../store/cases";
 import { flushUsage, logSearch } from "../../store/telemetry";
 import type { ToolContext } from "../registry";
@@ -131,6 +137,12 @@ export async function findCase(
         prov,
         noteBalayage,
         budgetEpuise ? "Budget d'appels épuisé — résultat partiel." : null,
+        // ⚠ C'EST ICI QUE LA NOTE COMPTE LE PLUS. « Aucun candidat » PLUS un
+        //   étranglement, c'est exactement la configuration où un modèle conclut à
+        //   l'inexistence d'une décision alors que des appels ont été refusés. Le
+        //   paragraphe qui suit énumère déjà les explications concurrentes ; celle-ci
+        //   en est une, et elle est la seule que le connecteur puisse CONSTATER.
+        noteEtranglement(ctx.client.usage().throttled) || null,
         "",
         "Une absence de candidat n'établit pas l'inexistence de la décision : la couverture",
         "de CanLII a des bornes historiques, et la diffusion connaît un délai.",
@@ -152,6 +164,9 @@ export async function findCase(
     tronque ? `Troncature : ${tronque}.` : null,
     noteBalayage,
     budgetEpuise ? "Budget d'appels épuisé — résultat partiel." : null,
+    // Le balayage est l'outil qui appelle le plus : c'est ici qu'un étranglement
+    // se lit le plus facilement comme « rien trouvé ». On le nomme.
+    noteEtranglement(ctx.client.usage().throttled) || null,
     "",
     GARDE_RECHERCHE,
   ]

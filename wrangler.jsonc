@@ -73,7 +73,7 @@
     "MCP_ENABLED": "true",
     // Étranglement sortant. Le quota de CanLII n'est pas publié (§16.2) : ces valeurs
     // sont délibérément prudentes et se resserrent, jamais l'inverse, sans mesure.
-    "CANLII_MIN_INTERVAL_MS": "250",
+    "CANLII_MIN_INTERVAL_MS": "600",
     "CANLII_MAX_CALLS_PER_INVOCATION": "40",
     "CANLII_TIMEOUT_MS": "15000",
     // Le cache se remplit par l'usage (D6) : tout balayage est persisté.
