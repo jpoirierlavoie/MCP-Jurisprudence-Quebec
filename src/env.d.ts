@@ -24,6 +24,17 @@ interface WorkerSecrets {
   CANLII_API_KEY?: string;
   /** Secret partagé du point d'entrée MCP (D7) — 32 octets en hexadécimal. */
   MCP_SHARED_SECRET?: string;
+  /**
+   * SECOND secret du même point d'entrée, aux droits IDENTIQUES, et FACULTATIF.
+   *
+   * Il n'ouvre rien de plus : il existe pour que le clavardage de Pallas Athéna et le
+   * connecteur claude.ai se révoquent SÉPARÉMENT. Un seul secret partagé par deux
+   * clients ne se fait pas tourner sans les éteindre tous les deux — et un connecteur
+   * compromis obligerait alors à interrompre le cabinet.
+   *
+   * Absent, le Worker se comporte exactement comme avant : un seul porteur admis.
+   */
+  MCP_SHARED_SECRET_ATHENA?: string;
 }
 
 interface Env extends WorkerSecrets {}

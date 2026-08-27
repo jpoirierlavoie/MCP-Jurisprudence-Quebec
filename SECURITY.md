@@ -99,6 +99,14 @@ Known and accepted properties of this model:
   `/health` included.
 - Rotating the secret is a single `wrangler secret put MCP_SHARED_SECRET` followed by
   updating the connector URL; no redeployment of code is required.
+- **Two secrets are accepted, with identical rights, so that either can be revoked on
+  its own.** `MCP_SHARED_SECRET` is the claude.ai connector's; `MCP_SHARED_SECRET_ATHENA`
+  — optional — belongs to the Pallas Athéna chat, which calls the same endpoint with
+  `Authorization: Bearer` (spec §19). The second grants nothing extra: what D7 protects
+  is the CanLII API key and its quota, not a data perimeter. They are separate only so
+  that rotating or revoking one bearer does not take the other down with it. If neither
+  is configured, everything is refused — the check fails CLOSED — and both failures
+  return the same `401`; no response and no log line ever says which one matched.
 - `GET /` serves a public documentation page. It is static, accepts no input, calls
   nothing and writes nothing. It never reads `MCP_SHARED_SECRET` — it documents the
   endpoint's *shape*, `/mcp/<secret>`, and a test rejects any 32+ hex-character

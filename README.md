@@ -203,6 +203,12 @@ npx wrangler secret put CANLII_API_KEY
 openssl rand -hex 32                              # puis :
 npx wrangler secret put MCP_SHARED_SECRET
 
+# FACULTATIF — second porteur, aux droits identiques : le clavardage de Pallas Athéna
+# (§19). Il n'ouvre rien de plus ; il existe pour que les deux clients se révoquent
+# SÉPARÉMENT. Omis, un seul porteur est admis.
+openssl rand -hex 32
+npx wrangler secret put MCP_SHARED_SECRET_ATHENA
+
 npx wrangler deploy
 ```
 
@@ -292,6 +298,12 @@ le quota.
   journalise la méthode, le nom d'outil et le statut — jamais le chemin (§9.2).
 - Comparaison du secret **à temps constant**, sur les empreintes SHA-256 — ce qui neutralise
   aussi l'écart de longueur.
+- **Deux secrets admis, aux droits identiques, révocables séparément** (§9.1, §19) :
+  `MCP_SHARED_SECRET` pour le connecteur claude.ai, `MCP_SHARED_SECRET_ATHENA` —
+  facultatif — pour le clavardage de Pallas Athéna. Le second ne délimite aucun
+  périmètre ; il évite qu'une rotation ou une révocation éteigne les deux clients à la
+  fois. Aucun secret configuré ⇒ **tout est refusé** (fermé par défaut), et les deux
+  échecs rendent le même `401`, sans jamais dire lequel a servi.
 - `MCP_ENABLED=false` ⇒ **404 sur toutes les routes MCP**, `/health` compris.
 - Chemin d'évolution vers OAuth 2.1 documenté en §9.4 de la spécification — **non
   implémenté** : la complexité n'est pas justifiée par la valeur protégée, qui est la clef

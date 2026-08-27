@@ -12,6 +12,8 @@ import { parseMessage } from "../src/mcp/rpc";
 import { type JsonSchema, validateArgs } from "../src/mcp/validate";
 
 const SECRET = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+/** Second porteur (§19) — le clavardage de Pallas Athéna. Droits identiques. */
+const SECRET_ATHENA = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
 
 // `wrangler types` fige chaque var sur sa valeur LITTÉRALE de wrangler.jsonc :
 // `Partial<Env>` garde donc `MCP_ENABLED: "true"` et interdit de l'éteindre dans un
@@ -335,9 +337,65 @@ describe("§9.1 — authentification", () => {
   });
 
   it("REFUSE TOUT quand aucun secret n'est configuré (défaut fermé)", async () => {
-    const sansSecret = { ...envAvec(), MCP_SHARED_SECRET: undefined };
+    // Les DEUX secrets absents. Le second étant facultatif, la régression à craindre
+    // est « rien à comparer, donc on laisse passer » : c'est ce que ce test interdit.
+    const sansSecret = {
+      ...envAvec(),
+      MCP_SHARED_SECRET: undefined,
+      MCP_SHARED_SECRET_ATHENA: undefined,
+    };
     const res = await appeler(rpc("ping"), { env: sansSecret as Env });
     expect(res.status).toBe(401);
+  });
+
+  // ── Second porteur (§19) ─────────────────────────────────────────────────
+  //
+  // Le clavardage de Pallas Athéna présente SON secret, aux droits identiques. Ce qui
+  // est vérifié ici n'est pas un privilège mais une INDÉPENDANCE : chacun ouvre, et
+  // retirer l'un laisse l'autre debout — sans quoi une rotation éteindrait les deux.
+
+  it("le second secret authentifie, par le chemin comme par l'en-tête", async () => {
+    const deux = envAvec({ MCP_SHARED_SECRET_ATHENA: SECRET_ATHENA });
+
+    const parChemin = await appeler(rpc("ping"), { secret: SECRET_ATHENA, env: deux });
+    expect(parChemin.status).toBe(200);
+
+    const parEntete = await appeler(rpc("ping"), {
+      secret: null,
+      headers: { Authorization: `Bearer ${SECRET_ATHENA}` },
+      env: deux,
+    });
+    expect(parEntete.status).toBe(200);
+  });
+
+  it("les deux porteurs coexistent : configurer le second n'invalide pas le premier", async () => {
+    const deux = envAvec({ MCP_SHARED_SECRET_ATHENA: SECRET_ATHENA });
+    const res = await appeler(rpc("ping"), { secret: SECRET, env: deux });
+    expect(res.status).toBe(200);
+  });
+
+  it("révocation SÉPARÉE : retirer le premier laisse le second ouvrir, et l'inverse", async () => {
+    const sansPremier = envAvec({
+      MCP_SHARED_SECRET: undefined,
+      MCP_SHARED_SECRET_ATHENA: SECRET_ATHENA,
+    });
+    expect((await appeler(rpc("ping"), { secret: SECRET_ATHENA, env: sansPremier })).status).toBe(
+      200,
+    );
+    expect((await appeler(rpc("ping"), { secret: SECRET, env: sansPremier })).status).toBe(401);
+
+    const sansSecond = envAvec({ MCP_SHARED_SECRET_ATHENA: undefined });
+    expect((await appeler(rpc("ping"), { secret: SECRET, env: sansSecond })).status).toBe(200);
+    expect((await appeler(rpc("ping"), { secret: SECRET_ATHENA, env: sansSecond })).status).toBe(
+      401,
+    );
+  });
+
+  it("deux secrets configurés n'admettent pas pour autant un troisième", async () => {
+    const deux = envAvec({ MCP_SHARED_SECRET_ATHENA: SECRET_ATHENA });
+    const res = await appeler(rpc("ping"), { secret: "mauvais-secret", env: deux });
+    expect(res.status).toBe(401);
+    expect(res.headers.get("WWW-Authenticate")).toBe("Bearer");
   });
 
   it("le secret bon passe", async () => {

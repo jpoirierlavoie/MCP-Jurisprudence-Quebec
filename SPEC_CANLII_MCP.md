@@ -207,6 +207,7 @@ claude.ai / Claude Code / Athéna (plus tard)
 |---|---|---|
 | `CANLII_API_KEY` | secret (`wrangler secret put`) | Clef d'API CanLII. **Jamais journalisée, jamais renvoyée, jamais dans une trace.** |
 | `MCP_SHARED_SECRET` | secret | 32 octets aléatoires en hexadécimal (`openssl rand -hex 32`). |
+| `MCP_SHARED_SECRET_ATHENA` | secret, **facultatif** | Second porteur du même point d'entrée, aux droits identiques : le clavardage de Pallas Athéna. Distinct pour être **révocable seul** (§9.1). Absent ⇒ un seul porteur admis. |
 | `MCP_ENABLED` | var | Coupe-circuit : `"false"` ⇒ toute route MCP renvoie `404`. Calque `MCP_ENABLED` d'Athéna. |
 | `CANLII_MIN_INTERVAL_MS` | var | Intervalle minimal entre deux appels sortants. |
 | `CANLII_MAX_CALLS_PER_INVOCATION` | var | Plafond d'appels sortants par invocation d'outil. |
@@ -704,6 +705,16 @@ Le secret est accepté sous deux formes, afin de couvrir tous les clients :
 1. dernier segment du chemin : `POST /mcp/<secret>` ;
 2. en-tête : `Authorization: Bearer <secret>`.
 
+**Deux secrets sont admis**, aux droits strictement identiques : `MCP_SHARED_SECRET`
+(connecteur claude.ai) et `MCP_SHARED_SECRET_ATHENA` (clavardage de Pallas Athéna,
+§19). Le second est facultatif ; absent, un seul porteur est admis et le comportement
+est celui d'avant. Ils ne délimitent aucun périmètre — ce que protège D7 reste la clef
+d'API et son quota — et n'existent séparément que pour la **révocation** : faire
+tourner le secret de claude.ai ne doit pas éteindre le clavardage du cabinet, ni
+l'inverse. Corollaires : le Worker reste **fermé par défaut** (aucun secret configuré ⇒
+tout est refusé), les deux échecs rendent le **même** `401`, et aucune réponse ni aucune
+trace ne dit lequel a servi.
+
 Comparaison **à temps constant**, sur les empreintes plutôt que sur les chaînes (ce qui neutralise aussi l'écart de longueur) :
 
 ```ts
@@ -979,6 +990,40 @@ Les exemples d'analyse sont **vivants** : la page appelle le vrai parseur et aff
 Aucune dépendance, **aucune requête tierce** : ni police distante, ni CDN, ni image, ni analytique. CSS et JavaScript sont en ligne dans le même module. Un test refuse tout `<script src>`, toute feuille de style externe et tout `@import`.
 
 Deux gardes de dérive : **aucune couleur en dur** hors des deux jeux de variables (une couleur écrite en dur ne bascule pas et devient invisible dans l'un des deux thèmes), et les deux jeux déclarent **exactement** les mêmes variables.
+
+---
+
+## 19. Second porteur — le clavardage de Pallas Athéna
+
+Athéna, le gestionnaire de pratique du même praticien, a un clavardage interne dont le
+moteur de tour appelle Vertex AI directement (`:rawPredict` pour les modèles Anthropic,
+`:generateContent` pour Gemini) et **exécute lui-même les appels d'outil**. Il consomme
+ce connecteur comme n'importe quel autre client MCP.
+
+**Rien n'a été ajouté au protocole pour lui**, et c'est le point important :
+
+- il présente son secret par `Authorization: Bearer` sur `POST /mcp` — la forme 2 de
+  §9.1, prévue dès l'origine « afin de couvrir tous les clients » ;
+- il n'émet aucun en-tête `Origin` (appel serveur à serveur), donc la défense contre le
+  ré-attachement DNS le laisse passer, comme `scripts/mcp-client.mjs` ;
+- le **mode JSON sans état** de D3 lui permet un simple POST par appel, sans poignée de
+  main `initialize` et sans `Mcp-Session-Id` à porter.
+
+**Aucune façade REST n'a été ajoutée**, et il ne faut pas en ajouter : elle dupliquerait
+les gestionnaires, ferait diverger deux surfaces d'un même outil, et contredirait D3. Le
+client MCP vit du côté d'Athéna.
+
+**Pourquoi l'exécution reste chez Athéna** plutôt que d'être confiée à un mécanisme de
+MCP distant du côté de Google : le moteur de tour est l'endroit où vivent la ligne
+d'audit de chaque appel d'outil, le mécanisme d'autorisation, le déchargement des gros
+blocs et le calcul du coût. Sortir les appels d'outil de ce registre reviendrait à
+perdre la traçabilité, qui est précisément ce qu'un dossier privilégié exige.
+
+**Ce que le second secret change, et ce qu'il ne change pas.** Il ne délimite aucun
+périmètre : les treize outils lui répondent comme au premier porteur. Il n'existe que
+pour la révocation séparée (§9.1). Une conséquence assumée : la limitation de débit de
+§9.3 est **par IP**, donc les deux clients ne se gênent pas — mais ils partagent le même
+quota d'API CanLII, et c'est bien ce quota que D7 protège.
 
 ---
 

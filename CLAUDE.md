@@ -39,11 +39,18 @@ exactement le mode de panne que §2 interdit, déplacé dans la documentation.
 **Le coût en jetons de cette vérification est ASSUMÉ et n'est pas un motif de l'abréger.**
 Relire quatre fichiers coûte moins qu'un praticien qui se fie à une description périmée.
 
+**Une SIXIÈME surface vit hors de ce dépôt, et aucune commande d'ici ne la voit dériver.**
+Le clavardage de Pallas Athéna offre les mêmes treize outils à son modèle depuis
+`athena/chat/worker_tools.py`, engendré depuis `tools/list` (§19). Un outil renommé ici
+laisse là-bas une fiche qui appelle un nom mort — et l'échec n'apparaît qu'au tour de
+clavardage suivant, sous la forme d'un outil qui « ne marche plus ». Après tout ajout,
+retrait ou renommage : relancer `athena/scripts/sync_worker_tools.py`.
+
 ### Table de propagation
 
 | Si vous touchez… | …vérifiez ET mettez à jour |
 |---|---|
-| **un outil** (ajout, retrait, renommage) | `src/mcp/registry.ts` · le gestionnaire dans `src/mcp/handlers/` · `OUTILS_EN` dans `src/site.i18n.ts` (parité testée **dans les deux sens**) · le tableau ET le compte de `README.md` §« Les treize outils » · §7 ou §17 de la spécification · les compteurs de `test/garde.test.ts` et `test/rpc.test.ts` · la **liste triée des noms** dans `test/rpc.test.ts` · le préfixe choisi (`canlii_` = réponse de CanLII ; `greffe_`/`palais_` = table locale — invariant 16) |
+| **un outil** (ajout, retrait, renommage) | `src/mcp/registry.ts` · le gestionnaire dans `src/mcp/handlers/` · `OUTILS_EN` dans `src/site.i18n.ts` (parité testée **dans les deux sens**) · le tableau ET le compte de `README.md` §« Les treize outils » · §7 ou §17 de la spécification · les compteurs de `test/garde.test.ts` et `test/rpc.test.ts` · la **liste triée des noms** dans `test/rpc.test.ts` · le préfixe choisi (`canlii_` = réponse de CanLII ; `greffe_`/`palais_` = table locale — invariant 16) · **hors dépôt** : `athena/chat/worker_tools.py`, à réengendrer par `athena/scripts/sync_worker_tools.py` (§19) |
 | **une description ou un titre** | la page les rend **verbatim** : relancer `test/site.test.ts` (formulations interdites) et `test/garde.test.ts` (sous-chaînes épinglées) · `OUTILS_EN` doit rester une TRADUCTION, jamais une copie |
 | **un `inputSchema`** | `src/mcp/validate.ts` n'implémente qu'un SOUS-ENSEMBLE de JSON-Schema : ne pas déclarer ce qu'il ne sait pas imposer · la page génère ses tableaux de schéma depuis le même objet · `additionalProperties: false` reste obligatoire |
 | **une constante `GARDE_*`** | elle vit dans le corps des réponses **et** sur la page · `test/garde.test.ts` · `MARQUEUR_RECONCILIATION` est en plus une chaîne de COUPLAGE lue par `scripts/refresh-databases.mjs` |
@@ -101,7 +108,7 @@ table en mémoire (aucune E/S). Ne pas fusionner.
 ```bash
 npx wrangler types && npx tsc --noEmit     # toujours avant commit
 npx biome check .                          # --write pour corriger
-npx vitest run                             # 439 tests, sans réseau ni clef
+npx vitest run                             # 443 tests, sans réseau ni clef
 npx wrangler dev                           # exige .dev.vars
 npx wrangler deploy --dry-run              # valide paquet + config, sans jeton
 npx wrangler d1 migrations apply canlii --local|--remote
@@ -236,15 +243,29 @@ inexistantes.
 - `CANLII_API_KEY` et `MCP_SHARED_SECRET` : posés par `wrangler secret put`, saisis par
   Jason lui-même. **Ne jamais les afficher, les lire en contexte, ni les écrire dans un
   fichier versionné.**
+- `MCP_SHARED_SECRET_ATHENA` : **facultatif**, même règle. Second porteur du point
+  d'entrée, aux droits IDENTIQUES — il n'ouvre aucun outil de plus. Il existe pour que
+  le clavardage de Pallas Athéna et le connecteur claude.ai se révoquent SÉPARÉMENT
+  (§9.1, §19). L'authentification reste **fermée par défaut** : aucun secret configuré
+  ⇒ tout est refusé. Ne jamais journaliser lequel des deux a servi.
 - `.dev.vars` (dev), `mcp.url` (URL de prod avec secret), `*.token` : **gitignorés**.
 - Commits signés, footer `Co-Authored-By:` adapté au modèle courant. Un commit par
   sous-tâche.
 
 ## État
 
-**Livré et en production** sur `jurisprudence.poirierlavoie.ca`, 439 tests verts. Treize
+**Livré et en production** sur `jurisprudence.poirierlavoie.ca`, 443 tests verts. Treize
 outils — dix `canlii_*`, trois `greffe_*`/`palais_*` — et une page publique bilingue sur
 la même origine (§18).
+
+**DEUX clients, et non un** (§19) : le connecteur claude.ai, et le clavardage de Pallas
+Athéna, qui appelle `POST /mcp` en `Authorization: Bearer` avec son propre secret. Rien
+n'a été ajouté au protocole pour lui — la forme par en-tête et le mode JSON sans état de
+D3 suffisaient. Conséquence pratique : **une modification d'outil se répercute désormais
+sur un sixième public**, `athena/chat/worker_tools.py`, engendré depuis `tools/list` par
+`athena/scripts/sync_worker_tools.py`. Ce fichier n'est pas dans ce dépôt et la porte
+d'ici ne peut pas le voir dériver : après tout ajout, retrait ou renommage d'outil,
+relancer le générateur côté Athéna.
 
 La réconciliation du répertoire (§4.3) est **faite** contre l'API vivante : elle a
 démenti cinq hypothèses d'amorçage, consignées avec leur preuve d'observation dans

@@ -14,3 +14,12 @@ CANLII_API_KEY=
 # chaque requête locale et finirait dans l'historique du shell.
 # Production : `openssl rand -hex 32` puis `wrangler secret put MCP_SHARED_SECRET`.
 MCP_SHARED_SECRET=dev-secret-local-seulement
+
+# SECOND secret du même point d'entrée, FACULTATIF, aux droits IDENTIQUES : celui du
+# clavardage de Pallas Athéna. Il n'ouvre rien de plus ; il existe pour que les deux
+# clients se révoquent séparément — faire tourner celui de claude.ai ne doit pas
+# éteindre le cabinet, ni l'inverse. Laisser vide reproduit exactement l'ancien
+# comportement (un seul porteur admis).
+# Production : `openssl rand -hex 32` puis
+# `wrangler secret put MCP_SHARED_SECRET_ATHENA`.
+# MCP_SHARED_SECRET_ATHENA=

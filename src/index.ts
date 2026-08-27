@@ -144,6 +144,35 @@ async function secretOk(given: string, expected: string): Promise<boolean> {
   return crypto.subtle.timingSafeEqual(a, b);
 }
 
+/**
+ * Le secret présenté est-il l'un des secrets admis ?
+ *
+ * ╔══════════════════════════════════════════════════════════════════════════════╗
+ * ║ DEUX SECRETS, DES DROITS IDENTIQUES, ET UNE SEULE RAISON : LA RÉVOCATION.     ║
+ * ║                                                                              ║
+ * ║ `MCP_SHARED_SECRET` sert le connecteur claude.ai ; `MCP_SHARED_SECRET_ATHENA` ║
+ * ║ sert le clavardage de Pallas Athéna. Le second n'ouvre AUCUN droit de plus —  ║
+ * ║ ce que protège D7 reste la clef d'API et son quota, pas un périmètre de       ║
+ * ║ données. Ils sont distincts pour qu'un porteur se retire SEUL : faire tourner ║
+ * ║ celui de claude.ai ne doit pas éteindre le cabinet, ni l'inverse.             ║
+ * ╚══════════════════════════════════════════════════════════════════════════════╝
+ *
+ * ⚠ FERMÉ PAR DÉFAUT. Le second secret étant facultatif, la tentation serait de
+ *   traiter « aucun secret configuré » comme « rien à comparer » : ce serait le
+ *   défaut ouvert par omission que §9.1 interdit. Liste vide ⇒ `some` rend faux ⇒
+ *   tout est refusé, exactement comme avant.
+ *
+ * ⚠ On compare les DEUX, sans court-circuit, et on ne journalise ni ne renvoie jamais
+ *   lequel a servi (§9.2) : les deux échecs sont le même 401.
+ */
+async function secretAdmis(presente: string, env: Env): Promise<boolean> {
+  const attendus = [env.MCP_SHARED_SECRET, env.MCP_SHARED_SECRET_ATHENA].filter(
+    (s): s is string => typeof s === "string" && s.length > 0,
+  );
+  const verdicts = await Promise.all(attendus.map((attendu) => secretOk(presente, attendu)));
+  return verdicts.some(Boolean);
+}
+
 /** Extrait le secret présenté : dernier segment du chemin, ou en-tête Authorization. */
 function presentedSecret(request: Request, pathname: string): string | null {
   const entete = request.headers.get("Authorization");
@@ -177,7 +206,7 @@ function methodNotAllowed(origin: string | null = null): Response {
  *   configuration) ou si l'appel échoue, on LAISSE PASSER.
  *
  *   Ce choix se justifie parce que la limitation de débit n'est PAS le contrôle
- *   d'accès : l'authentification, elle, échoue fermée (sans `MCP_SHARED_SECRET`,
+ *   d'accès : l'authentification, elle, échoue fermée (sans aucun secret configuré,
  *   tout est refusé). Ici, la seule chose protégée est le coût — requêtes Workers
  *   facturables et quota CanLII. Échouer fermé sur un compteur indisponible
  *   rendrait le connecteur inutilisable pour protéger une facture, ce qui est le
@@ -316,11 +345,8 @@ export default {
       // Aucun flux SSE, aucune session à supprimer : mode JSON sans état (D3).
       if (request.method !== "POST") return methodNotAllowed(origin);
 
-      const attendu = env.MCP_SHARED_SECRET;
       const presente = presentedSecret(request, pathname);
-      // Sans secret configuré, on refuse TOUT. Le contraire — laisser passer quand la
-      // configuration est incomplète — serait un défaut ouvert par omission.
-      if (!attendu || !presente || !(await secretOk(presente, attendu))) {
+      if (!presente || !(await secretAdmis(presente, env))) {
         return unauthorized(origin);
       }
       return await handleMcp(request, env, ctx, origin);
