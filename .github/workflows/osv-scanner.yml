@@ -25,19 +25,19 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@8d3c67de8e2fe68ef647c8db1e6a09f647780f40 # v2.19.0
+        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
         with:
           egress-policy: audit
 
       - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # BLOQUANT : un constat fait échouer le contrôle au lieu d'être avalé en
       # silence (le SARIF est tout de même téléversé, via `if: always()`).
       # Les exceptions sont dans `osv-scanner.toml`, chacune motivée et datée —
       # ce n'est PAS un « continue-on-error ».
       - name: Run OSV-Scanner
-        uses: google/osv-scanner-action/osv-scanner-action@eb5b619bb565d10623076caba5263750fde3c790 # v2.3.5
+        uses: google/osv-scanner-action/osv-scanner-action@ffa0a5f39214d80778c9b494822d94d0d9668458 # v2.3.5
         with:
           scan-args: |-
             --config=osv-scanner.toml
@@ -47,7 +47,7 @@ jobs:
 
       - name: Upload SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@95e58e9a2cdfd71adc6e0353d5c52f41a045d225 # v4.35.2
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           sarif_file: results.sarif
           category: osv-scanner
