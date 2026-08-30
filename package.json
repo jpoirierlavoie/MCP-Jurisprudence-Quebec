@@ -18,10 +18,10 @@
     "db:migrate:remote": "wrangler d1 migrations apply canlii --remote"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.3.14",
-    "@cloudflare/vitest-pool-workers": "^0.18.7",
+    "@biomejs/biome": "^2.5.10",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "typescript": "^5.9.2",
-    "vitest": "^4.1.10",
+    "vitest": "^4.1.11",
     "wrangler": "^4.113.0"
   }
 }
